@@ -1,23 +1,21 @@
 
-# gym-rotor
-
-OpenAI Gym environments for a quadrotor UAV control
-
-<img src="https://github.com/fdcl-gwu/gym-rotor/assets/50692767/4434e07f-48ae-4d96-8407-3d815e913ca7" width=50%>
+# gym-rotor-modularRL
 
 ### ***Learn by Doing***
 
-This repository contains OpenAI Gym environments and PyTorch implementations of [TD3](https://arxiv.org/abs/1802.09477) and [MATD3](https://arxiv.org/abs/1910.01465), for low-level control of quadrotor unmanned aerial vehicles. 
+OpenAI Gym environments for quadrotor UAV control.
+This repository implements both **monolithic** and **modular** reinforcement learning (RL) frameworks for the low-level control of a quadrotor unmanned aerial vehicles.
+A detailed explanation of these concepts can be found in [this YouTube video](https://www.youtube.com/watch?v=-NQ6oRsdWgI).
 To better understand **What Deep RL Do**, see [OpenAI Spinning UP](https://spinningup.openai.com/en/latest/index.html).
-Please don't hesitate to create new issues or pull requests for any suggestions and corrections. 
-- We have recently switched from [Gym](https://www.gymlibrary.dev/) to [Gymnasium](https://gymnasium.farama.org/), but our previous Gym-based environments are still available [here](https://github.com/fdcl-gwu/gym-rotor/tree/gym).
+
+<img src="articles/sim_env.png" width=70%>
+
 
 ## Installation
 ### Requirements
-The repo was written with Python 3.11.3, Gymnasium 0.28.1, Pytorch 2.0.1, and Numpy 1.25.1.
-It is recommended to create [Anaconda](https://www.anaconda.com/) environment with Python 3.
-The official installation guide is available [here](https://docs.anaconda.com/anaconda/install/).
-[Visual Studio Code](https://code.visualstudio.com/) in ``Anaconda Navigator`` is highly recommended.
+The repository is compatible with Python 3.11.3, Gymnasium 0.28.1, Pytorch 2.0.1, and Numpy 1.25.1.
+It is recommended to create [Anaconda](https://www.anaconda.com/) environment with Python 3 ([installation guide](https://docs.anaconda.com/anaconda/install/)).
+Additionally, [Visual Studio Code](https://code.visualstudio.com/) is recommended for efficient code editing.
 
 1. Open your ``Anaconda Prompt`` and install major packages.
 ```bash
@@ -26,17 +24,18 @@ conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvi
 conda install -c anaconda numpy
 conda install -c conda-forge vpython
 ```
-> Check out [Gymnasium](https://anaconda.org/conda-forge/gymnasium), [Pytorch](https://pytorch.org/get-started/locally/), and [Numpy](https://anaconda.org/anaconda/numpy), and [Vpython](https://anaconda.org/conda-forge/vpython).
+> Refer to the official documentation for [Gymnasium](https://anaconda.org/conda-forge/gymnasium), [Pytorch](https://pytorch.org/get-started/locally/), and [Numpy](https://anaconda.org/anaconda/numpy), and [Vpython](https://anaconda.org/conda-forge/vpython).
 
 2. Clone the repository.
 ```bash
-git clone https://github.com/fdcl-gwu/gym-rotor.git
+git clone https://github.com/fdcl-gwu/gym-rotor-modularRL.git
 ```
 
 ## Environments
-Consider a quadrotor UAV below. The equations of motion are given by
+### Quadrotor Dynamics 
+Consider a quadrotor UAV below,
 
-<img src="https://github.com/fdcl-gwu/gym-rotor/assets/50692767/7d683754-fd60-41e0-a29f-12e26ea279a8" width=40%>
+<img src="articles/EoM.png" width=50%>
 
 The position and the velocity of the quadrotor are represented by $x \in \mathbb{R}^3$ and $v \in \mathbb{R}^3$, respectively.
 The attitude is defined by the rotation matrix $R \in SO(3) = \lbrace R \in \mathbb{R}^{3\times 3} | R^T R=I_{3\times 3}, \mathrm{det}[R]=1 \rbrace$, that is the linear transformation of the representation of a vector from the body-fixed frame $\lbrace \vec b_{1},\vec b_{2},\vec b_{3} \rbrace$ to the inertial frame $\lbrace \vec e_1,\vec e_2,\vec e_3 \rbrace$. 
@@ -59,48 +58,88 @@ $$ \begin{gather}
     \end{bmatrix}.
 \end{gather} $$
 
+### Training Frameworks
+Two major training frameworks are provided for quadrotor low-level control tasks: (a) In a monolithic setting, a large end-to-end policy directly outputs total thrust and moments; (b) In modular frameworks, two modules collaborate to control the quadrotor: Module #1 and Module #2 specialize in translational control and yaw control, respectively. 
+
+<img src="articles/frameworks.png" width=90%>
+
 | Env IDs | Description |
 | :---: | --- |
-| `Quad-v0` | This serves as the foundational env for wrappers, where the state and action are represented as $s = (x, v, R, \Omega)$ and $a = (T_1, T_2, T_3, T_4)$.|
-| `CoupledWrapper` | For single-agent RL frameworks; the observation and action are given by $o = (e_x, e_v, R, e_\Omega, e_{I_x}, e_{b_1}, e_{I_{b_1}})$ and $a = (f, M_1, M_2, M_3)$.|
-| `DecoupledWrapper` | For multi-agent RL frameworks; the observation and action for each agent are defined as $o_1 = (e_x, e_v, b_3, e_{\omega_{12}}, e_{I_x})$, $a_1 = (f, \tau)$ and $o_2 = (b_1, e_{\Omega_3}, e_{b_1}, e_{I_{b_1}})$, $a_2 = M_3$, respectively.|
+| `Quad-v0` | This serves as the foundational environment for wrappers, where the state and action are represented as $s = (x, v, R, \Omega)$ and $a = (T_1, T_2, T_3, T_4)$.|
+| `CoupledWrapper` | Wrapper for monolithic RL framework: the observation and action are given by $o = (e_x, e_{I_x}, e_v, R, e_{b_1}, e_{I_{b_1}}, e_\Omega)$ and $a = (f, M_1, M_2, M_3)$.|
+| `DecoupledWrapper` | Wrapper for modular RL schemes: the observation and action for each agent are defined as $o_1 = (e_x, e_{I_x}, e_v, b_3, e_{\omega_{12}})$, $a_1 = (f, \tau)$ and $o_2 = (b_1, e_{b_1}, e_{I_{b_1}}, e_{\Omega_3})$, $a_2 = M_3$, respectively.|
 
 where the error terms $e_x, e_v$, and $e_\Omega$ represent the errors in position, velocity, and angular velocity, respectively.
-To eliminate steady-state errors, we add the integral terms $e_{I_x}$ and $e_{I_{b_1}}$.
-More details can be found [here](https://arxiv.org/abs/2311.06144).
-
-<!-- ### wrapper
-This repo provides several useful wrappers that can be found in `./gym_rotor/wrappers/'.
-| Wrapper IDs | Description |
-| :---: | --- |
-| `Sim2RealWrapper` | [Domain randomization](https://lilianweng.github.io/posts/2019-05-05-domain-randomization/) and sensor noise are modeled for sim-to-real transfer.|
-| `EquivWrapper` | Rotation equivariance properties are implemented for sample efficiency. More details can be found [here](https://arxiv.org/abs/2206.01233).| -->
+Also, we introduced the integral terms $e_{I_x}$ and $e_{I_{b_1}}$ to eliminate steady-state errors.
+More details are available in [our publication](https://ieeexplore.ieee.org/document/10777540).
 
 ## Examples
-Hyperparameters can be adjusted in `args_parse.py`.
-For example, training with the CMP framework can be run by
+There are three training frameworks for quadrotor control: NMP (Non-modular **Monolithic** Policy), DMP (**Decentralized Modular** Policies), and CMP (**Centralized Modular** Policies).
+Note that our study investigates two inter-module communication strategies to optimize coordination across modules: centralized and decentralized coordination. 
+In the decentralized setting, namely DMP, modules independently learn their action value functions and policies without inter-agent synchronization.
+In contrast, centralized methods, called CMP, introduce centralized critic networks to share information between modules during training.
+You can adjust the hyperparameters in `args_parse.py` to fine-tune the models.
+
+### Training 
+To train the agent with different frameworks, use the following commands,
 ```bash
-python3 main.py --framework CMP --seed 789
+# Non-modular monolithic framework
+python3 main.py --framework NMP 
+# Centralized modular framework
+python3 main.py --framework CMP 
+# Decentralized modular framework
+python3 main.py --framework DMP 
 ```
 
-## Citation
-If you find this work useful in your own work or would like to cite it, please give credit to our work:
+### Testing
+The trained model is saved in the `models` folder (e.g. `NMP_590.0k_steps_agent_0_2024`).
+First, modify `total_steps` value in `main.py`, for example, for NMP schemes,
 ```bash
-@article{yu2023multi,
+        # Load trained models for evaluation:
+        if self.args.test_model:
+            if self.framework == "NMP":
+                total_steps, agent_id = 590_000, 0  # edit 'total_steps' accordingly
+                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
+```
+Next, run the following command,
+```bash
+python3 main.py --test_model True --save_log True --render True --seed 2024
+```
+
+### Plotting Results
+When testing the trained models, we can save the flight data using the `--save_log True` flag.
+Then the data is saved to the `results` folder along with the current date and time (e.g. `NMP_log_11272024_133517.dat`).
+To visualize the flight data, open `draw_plot.py` and update the `file_name` accordingly, e.g., `file_name = 'NMP_log_11272024_133517'`.
+Lastly, run the plotting script,
+```bash
+python3 draw_plot.py
+```
+
+## Results
+At slower desired yaw rates, such as $\omega_d = 5$ deg/s, all three frameworks demonstrate satisfactory accuracy in position tracking and heading control. 
+However, as $\omega_d$ is increased, the performance of NMP degrades.
+In contrast, both CMP and DMP exhibit superior performance thanks to their modular structure, as changes in one module do not affect the other, thereby enhancing robustness and fault tolerance. 
+
+<img src="articles/flight_traj.png" width=90%>
+
+
+## Citation
+If you find this work useful in your work and would like to cite it, please give credit to our work:
+```bash
+@article{yu2024modular,
+  title={Modular Reinforcement Learning for a Quadrotor UAV with Decoupled Yaw Control},
+  author={Yu, Beomyeol and Lee, Taeyoung},
+  journal={IEEE Robotics and Automation Letters},
+  year={2024},
+  publisher={IEEE}}
+
+@inproceedings{yu2024multi,
   title={Multi-Agent Reinforcement Learning for the Low-Level Control of a Quadrotor UAV},
   author={Yu, Beomyeol and Lee, Taeyoung},
-  journal={arXiv preprint arXiv:2311.06144},
-  year={2023}
-}
-
-@inproceedings{yu2023equivariant,
-  title={Equivariant Reinforcement Learning for Quadrotor UAV},
-  author={Yu, Beomyeol and Lee, Taeyoung},
-  booktitle={2023 American Control Conference (ACC)},
-  pages={2842--2847},
-  year={2023},
-  organization={IEEE}
-}
+  booktitle={2024 American Control Conference (ACC)},
+  pages={1537--1542},
+  year={2024},
+  organization={IEEE}}
 ```
 
 ## Reference:
