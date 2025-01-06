@@ -4,12 +4,11 @@
 ### ***Learn by Doing***
 
 OpenAI Gym environments for quadrotor UAV control.
-This repository implements both **monolithic** and **modular** reinforcement learning (RL) frameworks for the low-level control of a quadrotor unmanned aerial vehicles.
+This repository implements both **monolithic** and **modular** reinforcement learning (RL) frameworks for the low-level control of a quadrotor unmanned aerial vehicle.
 A detailed explanation of these concepts can be found in [this YouTube video](https://www.youtube.com/watch?v=-NQ6oRsdWgI).
 To better understand **What Deep RL Do**, see [OpenAI Spinning UP](https://spinningup.openai.com/en/latest/index.html).
 
 <img src="articles/sim_env.png" width=70%>
-
 
 ## Installation
 ### Requirements
@@ -61,7 +60,9 @@ $$ \begin{gather}
 ### Training Frameworks
 Two major training frameworks are provided for quadrotor low-level control tasks: (a) In a monolithic setting, a large end-to-end policy directly outputs total thrust and moments; (b) In modular frameworks, two modules collaborate to control the quadrotor: Module #1 and Module #2 specialize in translational control and yaw control, respectively. 
 
-<img src="articles/frameworks.png" width=90%>
+<p align="center">
+    <img src="articles/frameworks.png" width=90%>
+</p>
 
 | Env IDs | Description |
 | :---: | --- |
@@ -120,8 +121,9 @@ At slower desired yaw rates, such as $\omega_d = 5$ deg/s, all three frameworks 
 However, as $\omega_d$ is increased, the performance of NMP degrades.
 In contrast, both CMP and DMP exhibit superior performance thanks to their modular structure, as changes in one module do not affect the other, thereby enhancing robustness and fault tolerance. 
 
-<img src="articles/flight_traj.png" width=90%>
-
+<p align="center">
+    <img src="articles/flight_traj.png" width=90%>
+<\p>
 
 ## Citation
 If you find this work useful in your work and would like to cite it, please give credit to our work:
