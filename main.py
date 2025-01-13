@@ -29,8 +29,8 @@ class Learner:
         if self.framework in ("CMP","DMP"):
             """----------------------------------------------------------------------------------------------
             | Agents   | Observations            | obs_dim | Actions        | act_dim | Rewards              |
-            | module#1 | {ex, ev, b3, ew12, eIx} | 15      | {f_total, tau} | 4       | f(ex, eIx, ev, ew12) |
-            | module#2 | {b1, eW3, eb1, eIb1}    | 6       | {M3}           | 1       | f(eb1, eIb1, eW3)    |
+            | module#1 | {ex, eIx, ev, b3, ew12} | 15      | {f_total, tau} | 4       | f(ex, eIx, ev, ew12) |
+            | module#2 | {b1, eb1, eIb1, eW3}    | 6       | {M3}           | 1       | f(eb1, eIb1, eW3)    |
             ----------------------------------------------------------------------------------------------"""
             self.env = DecoupledWrapper()
             self.args.N = 2  # num of agents
@@ -39,7 +39,7 @@ class Learner:
         elif self.framework == "NMP":
             """-------------------------------------------------------------------------------------------------------------
             | Agents  | Observations                    | obs_dim | Actions      | act_dim | Rewards                       |
-            | single  | {ex, ev, R, eW, eIx, eb1, eIb1} | 23      | {f_total, M} | 4       | f(ex, eIx, ev, eb1, eIb1, eW) |
+            | single  | {ex, eIx, ev, R, eb1, eIb1, eW} | 23      | {f_total, M} | 4       | f(ex, eIx, ev, eb1, eIb1, eW) |
             -------------------------------------------------------------------------------------------------------------"""
             self.env = CoupledWrapper()
             self.args.N = 1  # num of agents
@@ -80,20 +80,20 @@ class Learner:
         if self.args.test_model:
             if self.framework == "CMP":
                 total_steps, agent_id = 578_000, 0  # edit 'total_steps' accordingly
-                # self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models
-                self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
+                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models
+                # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
                 total_steps, agent_id = 550_000, 1  # edit 'total_steps' accordingly
-                # self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models 
-                self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
+                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models 
+                # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
             if self.framework == "DMP":
                 total_steps, agent_id = 582_000, 0  # edit 'total_steps' accordingly
-                # self.agent_n[agent_id].load(self.framework, etotal_steps, agent_id, self.seed)
-                self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
+                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
+                # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
                 total_steps, agent_id = 556_000, 1  # edit 'total_steps' accordingly
-                # self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
-                self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
+                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
+                # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
             elif self.framework == "NMP":
-                total_steps, agent_id = 1981_000, 0  # edit 'total_steps' accordingly
+                total_steps, agent_id = 620_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
 

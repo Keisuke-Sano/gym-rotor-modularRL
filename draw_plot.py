@@ -12,11 +12,11 @@ plt.rcParams['font.size'] = 18
 fontsize = 25
 
 # Data load and indexing:
-file_name = 'CMP_log_07292024_184902'
+file_name = 'NMP_log_10232024_135230'
 log_date = np.loadtxt(os.path.join('./results', file_name + '.dat')) 
 start_index = 3
 end_index = len(log_date)
-is_SAVE = False
+is_SAVE = True
 
 # Pre-processing:
 parser = args_parse.create_parser()
@@ -107,7 +107,7 @@ for label in (axs[2].get_xticklabels() + axs[2].get_yticklabels()):
 for label in (axs[3].get_xticklabels() + axs[3].get_yticklabels()):
 	label.set_fontsize(fontsize)
 if is_SAVE:
-    plt.savefig(os.path.join('./results', file_name[:4]+file_name[8:]+'_fM'+'.png'), bbox_inches='tight')
+    plt.savefig(os.path.join('./results', file_name[:3]+file_name[7:]+'_fM'+'.png'), bbox_inches='tight')
 
 #######################################################################
 ############################# Plot Forces #############################
@@ -140,7 +140,7 @@ for label in (axs[2].get_xticklabels() + axs[2].get_yticklabels()):
 for label in (axs[3].get_xticklabels() + axs[3].get_yticklabels()):
 	label.set_fontsize(fontsize)
 if is_SAVE:
-    plt.savefig(os.path.join('./results', file_name[:4]+file_name[8:]+'_T'+'.png'), bbox_inches='tight')
+    plt.savefig(os.path.join('./results', file_name[:3]+file_name[7:]+'_T'+'.png'), bbox_inches='tight')
 
 ###################################################################################
 ############################# Plot States x, v, and W #############################
@@ -220,7 +220,7 @@ for label in (axs[2, 1].get_xticklabels() + axs[2, 1].get_yticklabels()):
 for label in (axs[2, 2].get_xticklabels() + axs[2, 2].get_yticklabels()):
 	label.set_fontsize(fontsize)
 if is_SAVE:
-    plt.savefig(os.path.join('./results', file_name[:4]+file_name[8:]+'_x_v_W'+'.png'), bbox_inches='tight')
+    plt.savefig(os.path.join('./results', file_name[:3]+file_name[7:]+'_x_v_W'+'.png'), bbox_inches='tight')
 
 #########################################################################
 ############################# Plot States R #############################
@@ -305,7 +305,7 @@ for label in (axs[2, 2].get_xticklabels() + axs[2, 2].get_yticklabels()):
 	label.set_fontsize(fontsize)
 
 if is_SAVE:
-    plt.savefig(os.path.join('./results', file_name[:4]+file_name[8:]+'_R'+'.png'), bbox_inches='tight')
+    plt.savefig(os.path.join('./results', file_name[:3]+file_name[7:]+'_R'+'.png'), bbox_inches='tight')
 
 ##########################################################################
 #################### Plot ex, eIx, eb1, and  eIb1R #######################
@@ -319,6 +319,8 @@ mse_eW1, mse_eW2, mse_eW3 = np.mean(eW1**2), np.mean(eW2**2), np.mean(eW3**2)
 rmse_ex1, rmse_ex2, rmse_ex3, rmse_yaw = np.sqrt(mse_ex1), np.sqrt(mse_ex2), np.sqrt(mse_ex3), np.sqrt(mse_yaw)
 rmse_ev1, rmse_ev2, rmse_ev3 = np.sqrt(mse_ev1), np.sqrt(mse_ev2), np.sqrt(mse_ev3)
 rmse_eW1, rmse_eW2, rmse_eW3 = np.sqrt(mse_eW1), np.sqrt(mse_eW2), np.sqrt(mse_eW3)
+rmse_f, rmse_M1, rmse_M2, rmse_M3 = np.sqrt(np.mean(fM[0]**2)), np.sqrt(np.mean(fM[1]**2)), np.sqrt(np.mean(fM[2]**2)), np.sqrt(np.mean(fM[3]**2))
+max_f, max_M1, max_M2, max_M3 = max(fM[0]), max(abs(fM[1])), max(abs(fM[2])), max(abs(fM[3]))
 print('========================================================================')
 print(f"rmse_ex1 [m]: {rmse_ex1:.2f}, rmse_ex2 [m]: {rmse_ex2:.2f}, rmse_ex3 [m]: {rmse_ex3:.2f}")
 print(f"rmse_ex1 [cm]: {rmse_ex1*100:.2f}, rmse_ex2 [cm]: {rmse_ex2*100:.2f}, rmse_ex3 [cm]: {rmse_ex3*100:.2f}")
@@ -330,6 +332,8 @@ print('========================================================================'
 print(f"rmse_ex [cm]: {(rmse_ex1+rmse_ex2+rmse_ex3)*100/3:.2f}, rmse_ev [cm/s]: {(rmse_ev1+rmse_ev2+rmse_ev3)*100/3:.2f}, rmse_eW [deg/s]: {(rmse_eW1+rmse_eW2+rmse_eW3)*180/np.pi/3:.2f}")
 print(f"rmse_eW_12 [deg/s]: {(rmse_eW1+rmse_eW2)*180/np.pi/2:.2f}, rmse_eW_3 [deg/s]: {rmse_eW3*180/np.pi:.2f}")
 print(f"rmse_yaw [rad]: {rmse_yaw:.2f}, rmse_yaw [deg]: {rmse_yaw*180/np.pi:.2f}")
+print(f"rmse_f [N]: {rmse_f:.2f}, rmse_M12 [Nm]: {(rmse_M1+rmse_M2):.3f}, rmse_M3 [Nm]: {rmse_M3:.3f}")
+print(f"max_f [N]: {max_f:.2f}, abs_max_M3 [Nm]: {max_M3:.3f}")
 print('========================================================================')
 
 fig, axs = plt.subplots(3, 3, figsize=(30, 12))
@@ -380,6 +384,6 @@ for label in (axs[2, 0].get_xticklabels() + axs[2, 0].get_yticklabels()):
 for label in (axs[2, 1].get_xticklabels() + axs[2, 1].get_yticklabels()):
 	label.set_fontsize(fontsize)
 if is_SAVE:
-    plt.savefig(os.path.join('./results', file_name[:4]+file_name[8:]+'_eIx_eIb1'+'.png'), bbox_inches='tight')
+    plt.savefig(os.path.join('./results', file_name[:3]+file_name[7:]+'_eIx_eIb1'+'.png'), bbox_inches='tight')
 else:
     plt.show()
