@@ -61,10 +61,8 @@ class Learner:
             self.noise_std_decay = (self.args.explor_noise_std_init - self.args.explor_noise_std_min) / self.args.explor_noise_decay_steps
             self.explor_noise_std = self.args.explor_noise_std_init  # initialize explor_noise_std
         
-        # Initialize the trajectory generator for curriculum learning:
+        # Initialize the trajectory generator:
         self.trajectory_generator = TrajectoryGenerator(self.env)  
-        # self.trajectory_generator.mark_traj_start() # reset trajectories
-        self.curriculum_interval = (400_000, 500_000, 700_000, 900_000, 1_100_000)  # interval for curriculum learning
         self.mode = 0  # set mode for generating curtain trajectories 
 
         # Initialize N agents:
@@ -164,7 +162,7 @@ class Learner:
 
             # When done_episode:
             if any(done_n) == True or done_episode == True:
-                # Reset trajectory generation modes for curriculum learning:
+                # Reset trajectory generation modes:
                 """ Mode List -----------------------------------------------
                 0: manual mode (idle and warm-up)
                 1: hovering
@@ -174,18 +172,6 @@ class Learner:
                 5: circle
                 6: eight shaped curve
                 ----------------------------------------------------------"""
-                """
-                if self.total_timesteps <= self.curriculum_interval[0]:
-                    self.mode = 0
-                elif self.total_timesteps <= self.curriculum_interval[1]:
-                    self.mode = 6
-                elif self.total_timesteps <= self.curriculum_interval[2]:
-                    self.mode = 7
-                elif self.total_timesteps <= self.curriculum_interval[3]:
-                    self.mode = 8
-                elif self.total_timesteps >= self.curriculum_interval[4]:
-                    self.mode = 9
-                """
                 
                 # Print training updates:
                 print(f"total_timestpes: {self.total_timesteps+1}, time_stpes: {episode_timesteps}, reward: {episode_reward}, ex: {ex}, eb1: {eb1:.3f}, mode: {self.mode}")
@@ -230,12 +216,7 @@ class Learner:
                     if eval_reward[agent_id] > max_total_reward[agent_id]:
                         max_total_reward[agent_id] = eval_reward[agent_id]
                         self.agent_n[agent_id].save_model(self.framework, self.total_timesteps, agent_id, self.seed)
-            
-            # Reset max_total_reward when curriculum changed:
-            """
-            if self.total_timesteps in self.curriculum_interval:
-                max_total_reward = [0.8*self.eval_max_steps, 0.8*self.eval_max_steps]  # reset max_total_reward
-            """
+
         # Close environment:
         self.env.close()
 
