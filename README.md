@@ -1,7 +1,7 @@
 
-# Unlocking the Potential of Modular Reinforcement Learning
+# gym-rotor-modularRL
 
-### ***Learn by Doing***
+### ***Unlocking the Potential of Modular Reinforcement Learning***
 
 OpenAI Gym environments for quadrotor UAV control.
 This repository implements both **monolithic** and **modular** reinforcement learning (RL) frameworks for the low-level control of a quadrotor unmanned aerial vehicle.
