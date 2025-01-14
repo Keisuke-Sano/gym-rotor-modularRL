@@ -21,33 +21,46 @@ import args_parse
 os.makedirs("./models") if not os.path.exists("./models") else None 
 os.makedirs("./results") if not os.path.exists("./results") else None
 
+# Running device:
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print("CUDA found.")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("MPS found.")
+else:
+    device = torch.device("cpu")
+
+
 class Learner:
     def __init__(self, args):
         # Make a new OpenAI Gym environment:
-        self.args = args
-        self.framework = self.args.framework
-        if self.framework in ("CMP","DMP"):
+        args.device = device
+        if args.framework in ("CMP","DMP"):
+            self.env = DecoupledWrapper()
             """----------------------------------------------------------------------------------------------
             | Agents   | Observations            | obs_dim | Actions        | act_dim | Rewards              |
             | module#1 | {ex, eIx, ev, b3, ew12} | 15      | {f_total, tau} | 4       | f(ex, eIx, ev, ew12) |
             | module#2 | {b1, eb1, eIb1, eW3}    | 6       | {M3}           | 1       | f(eb1, eIb1, eW3)    |
             ----------------------------------------------------------------------------------------------"""
-            self.env = DecoupledWrapper()
-            self.args.N = 2  # num of agents
-            self.args.obs_dim_n = [15, 6]
-            self.args.action_dim_n = [4, 1]
-        elif self.framework == "NMP":
+            args.N = 2  # num of agents
+            args.obs_dim_n = [15, 6]
+            args.action_dim_n = [4, 1]
+        elif args.framework == "NMP":
+            self.env = CoupledWrapper()
             """-------------------------------------------------------------------------------------------------------------
             | Agents  | Observations                    | obs_dim | Actions      | act_dim | Rewards                       |
             | single  | {ex, eIx, ev, R, eb1, eIb1, eW} | 23      | {f_total, M} | 4       | f(ex, eIx, ev, eb1, eIb1, eW) |
             -------------------------------------------------------------------------------------------------------------"""
-            self.env = CoupledWrapper()
-            self.args.N = 1  # num of agents
-            self.args.obs_dim_n = [23]
-            self.args.action_dim_n = [4]
+            args.N = 1  # num of agents
+            args.obs_dim_n = [23]
+            args.action_dim_n = [4]
         
+        # Convert args to dictionary, e.g., self.rl_algo = args.rl_algo:
+        self.__dict__.update(vars(args))  
+
         # Set seed for random number generators:
-        self.seed = self.args.seed
+        self.seed = self.seed
         set_seed(self.env, self.seed)  # set seed for random number generators
 
         # Limits of each state:
@@ -56,10 +69,10 @@ class Learner:
 
         # Initialize the training loop:
         self.total_timesteps = 0  # total num of timesteps
-        self.eval_max_steps = self.args.eval_max_steps / self.env.dt  # max num of steps during evaluation; [sec] -> [timestep]
-        if self.args.use_explor_noise_decay:
-            self.noise_std_decay = (self.args.explor_noise_std_init - self.args.explor_noise_std_min) / self.args.explor_noise_decay_steps
-            self.explor_noise_std = self.args.explor_noise_std_init  # initialize explor_noise_std
+        self.eval_max_steps = self.eval_max_steps / self.env.dt  # max num of steps during evaluation; [sec] -> [timestep]
+        if self.use_explor_noise_decay:
+            self.noise_std_decay = (self.explor_noise_std_init - self.explor_noise_std_min) / self.explor_noise_decay_steps
+            self.explor_noise_std = self.explor_noise_std_init  # initialize explor_noise_std
         
         # Initialize the trajectory generator:
         self.trajectory_generator = TrajectoryGenerator(self.env)  
@@ -67,20 +80,20 @@ class Learner:
 
         # Initialize N agents:
         if self.framework == "CMP":
-            self.agent_n = [MATD3(args, agent_id) for agent_id in range(self.args.N)]
+            self.agent_n = [MATD3(args, agent_id) for agent_id in range(self.N)]
         elif self.framework in ("NMP", "DMP"):
-            self.agent_n = [TD3(args, agent_id) for agent_id in range(self.args.N)]
+            self.agent_n = [TD3(args, agent_id) for agent_id in range(self.N)]
 
         # Initialize replay buffer:
-        self.replay_buffer = ReplayBuffer(self.args)
+        self.replay_buffer = ReplayBuffer(args)
         
         # Load trained models for evaluation:
-        if self.args.test_model:
+        if self.eval_model:
             if self.framework == "CMP":
                 total_steps, agent_id = 578_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
-                total_steps, agent_id = 550_000, 1  # edit 'total_steps' accordingly
+                total_steps, agent_id = 616_000, 1  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models 
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
             if self.framework == "DMP":
@@ -91,7 +104,7 @@ class Learner:
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
             elif self.framework == "NMP":
-                total_steps, agent_id = 620_000, 0  # edit 'total_steps' accordingly
+                total_steps, agent_id = 632_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)
 
@@ -113,7 +126,7 @@ class Learner:
         obs_n = self.env.get_norm_error_state(self.framework)
 
         # Initialize reward variables:
-        max_total_reward = [0.8*self.eval_max_steps, 0.8*self.eval_max_steps]  # start saving best models after agents achieve 80% of the total reward for each episode
+        max_total_reward = [0.85*self.eval_max_steps, 0.85*self.eval_max_steps]  # start saving best models after agents achieve 80% of the total reward for each episode
         if self.framework in ("CMP","DMP"):
             episode_reward = [0.,0.]
         elif self.framework == "NMP":
@@ -121,7 +134,7 @@ class Learner:
         episode_timesteps = 0
 
         # Training loop:
-        for self.total_timesteps in range(int(self.args.max_timesteps)):
+        for self.total_timesteps in range(int(self.max_timesteps)):
             self.total_timesteps += 1
             episode_timesteps += 1
 
@@ -131,8 +144,8 @@ class Learner:
             self.env.set_goal_state(xd, vd, b1d, b1d_dot, Wd)
 
             # Each agent selects actions based on its own local observations with exploration noise:
-            if self.total_timesteps < self.args.start_timesteps:  # select actions randomly
-                act_n = [np.random.rand(action_dim_n) * 2 - 1 for action_dim_n in self.args.action_dim_n]  # random actions between -1 and 1
+            if self.total_timesteps < self.start_timesteps:  # select actions randomly
+                act_n = [np.random.rand(action_dim_n) * 2 - 1 for action_dim_n in self.action_dim_n]  # random actions between -1 and 1
             else:  # select actions from trained policies
                 act_n = [agent.choose_action(obs, explor_noise_std=self.explor_noise_std) for agent, obs in zip(self.agent_n, obs_n)]
             action = np.concatenate((act_n), axis=None)
@@ -143,7 +156,7 @@ class Learner:
             ex, _, _, eb1, _ = get_error_state(obs_next_n, self.x_lim, self.v_lim, self.eIx_lim, self.eIb1_lim, args)
 
             # Episode termination:
-            if episode_timesteps == self.args.max_steps:  # episode terminated!
+            if episode_timesteps == self.max_steps:  # episode terminated!
                 done_episode = True
                 done_n[0] = True if (abs(ex) <= 0.03).all() and r_n[0] != -1. else False  # problem is solved! when ex < 0.03m
                 if self.framework in ("CMP","DMP"):
@@ -151,13 +164,13 @@ class Learner:
 
             # Store a set of transitions in replay buffer:
             self.replay_buffer.store_transition(obs_n, act_n, r_n, obs_next_n, done_n)
-            episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.args.N), r_n)]
+            episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.N), r_n)]
             obs_n = obs_next_n
 
             # Train agent after collecting sufficient data:
-            if self.total_timesteps > self.args.start_timesteps:
+            if self.total_timesteps > self.start_timesteps:
                 # Train each agent individually:
-                for agent_id in range(self.args.N):
+                for agent_id in range(self.N):
                     self.agent_n[agent_id].train(self.replay_buffer, self.agent_n, self.env)
 
             # When done_episode:
@@ -177,7 +190,7 @@ class Learner:
                 print(f"total_timestpes: {self.total_timesteps+1}, time_stpes: {episode_timesteps}, reward: {episode_reward}, ex: {ex}, eb1: {eb1:.3f}, mode: {self.mode}")
 
                 # Log data:
-                if self.total_timesteps >= self.args.start_timesteps:
+                if self.total_timesteps >= self.start_timesteps:
                     if self.framework in ("CMP","DMP"):
                         log_step.write('{}\t {}\n'.format(self.total_timesteps, episode_reward))
                     elif self.framework == "NMP":
@@ -197,11 +210,11 @@ class Learner:
                 episode_timesteps = 0
 
             # Decay explor_noise_std:
-            if self.args.use_explor_noise_decay:
-                self.explor_noise_std = self.explor_noise_std - self.noise_std_decay if self.explor_noise_std > self.args.explor_noise_std_min else self.args.explor_noise_std_min
+            if self.use_explor_noise_decay:
+                self.explor_noise_std = self.explor_noise_std - self.noise_std_decay if self.explor_noise_std > self.explor_noise_std_min else self.explor_noise_std_min
 
             # Evaluate policy:
-            if self.total_timesteps % self.args.eval_freq == 0 and self.total_timesteps > self.args.start_timesteps:
+            if self.total_timesteps % self.eval_freq == 0 and self.total_timesteps > self.start_timesteps:
                 eval_reward, benchmark_reward = self.eval_policy()
 
                 # Logging updates:
@@ -212,10 +225,10 @@ class Learner:
                 log_eval.flush()
 
                 # Save best model:
-                for agent_id in range(self.args.N):
-                    if eval_reward[agent_id] > max_total_reward[agent_id]:
+                for agent_id in range(self.N):
+                    if eval_reward[agent_id] > max_total_reward[agent_id] and self.save_model == True:
                         max_total_reward[agent_id] = eval_reward[agent_id]
-                        self.agent_n[agent_id].save_model(self.framework, self.total_timesteps, agent_id, self.seed)
+                        self.agent_n[agent_id].save(self.framework, self.total_timesteps, agent_id, self.seed)
 
         # Close environment:
         self.env.close()
@@ -245,7 +258,7 @@ class Learner:
         benchmark_reward = 0. # Reward for benchmark
 
         print("--------------------------------------------------------------------------------------------------------------------------------")
-        for num_eval in range(self.args.num_eval):
+        for num_eval in range(self.num_eval):
             # Set mode for generating trajectories:
             mode = self.mode
             """ Mode List -----------------------------------------------
@@ -289,7 +302,7 @@ class Learner:
                 action = np.concatenate((act_n), axis=None)
 
                 # Save data:
-                if self.args.save_log:
+                if self.save_log:
                     _, eIx, _, eb1, eIb1 = get_error_state(obs_n, self.x_lim, self.v_lim, self.eIx_lim, self.eIb1_lim, args)
                     obs_list.append(np.concatenate((state, eIx, eb1, eIb1), axis=None))
                     # Compute b1c
@@ -301,12 +314,12 @@ class Learner:
 
                 # Perform actions:
                 obs_next_n, r_n, done_n, _, _ = eval_env.step(copy.deepcopy(action))
-                eval_env.render() if self.args.render == True else None
+                eval_env.render() if self.render == True else None
                 state_next = eval_env.get_current_state()
                 ex, eIx, ev, eb1, eIb1 = get_error_state(obs_next_n, self.x_lim, self.v_lim, self.eIx_lim, self.eIb1_lim, args)
 
                 # Cumulative rewards:
-                episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.args.N), r_n)]
+                episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.N), r_n)]
                 episode_benchmark_reward += benchmark_reward_func(ex, eb1)
 
                 # Episode termination:
@@ -323,30 +336,30 @@ class Learner:
                 obs_n = obs_next_n
 
             # Compute total evaluation rewards:
-            eval_reward = [eval_reward[agent_id]+epi_r for agent_id, epi_r in zip(range(self.args.N), episode_reward)]
+            eval_reward = [eval_reward[agent_id]+epi_r for agent_id, epi_r in zip(range(self.N), episode_reward)]
             benchmark_reward += episode_benchmark_reward
 
             # Save data:
-            if self.args.save_log:
+            if self.save_log:
                 min_len = min(len(act_list), len(obs_list), len(cmd_list))
                 log_data = np.column_stack((act_list[-min_len:], obs_list[-min_len:], cmd_list[-min_len:]))
                 header = "Actions and States\n"
                 header += "action[0], ..., state[0], ..., command[0], ..." 
-                time_now = datetime.now().strftime("%m%d%Y_%H%M%S") 
+                time_now = datetime.now().strftime("%Y%m%d_%H%M%S") 
                 fpath = os.path.join('./results', self.framework+'_log_'+time_now+'.dat')
                 np.savetxt(fpath, log_data, header=header, fmt='%.10f') 
 
         # Average reward:
-        eval_reward = [float('{:.4f}'.format(eval_r/self.args.num_eval)) for eval_r in eval_reward]
-        benchmark_reward = float('{:.4f}'.format(benchmark_reward/self.args.num_eval))
+        eval_reward = [float('{:.4f}'.format(eval_r/self.num_eval)) for eval_r in eval_reward]
+        benchmark_reward = float('{:.4f}'.format(benchmark_reward/self.num_eval))
         print("--------------------------------------------------------------------------------------------------------------------------------")
         print(f"total_timesteps: {self.total_timesteps} \t eval_reward: {eval_reward} \t benchmark_reward: {benchmark_reward} \t explor_noise_std: {self.explor_noise_std:.4f}")
         print("--------------------------------------------------------------------------------------------------------------------------------")
-        sys.exit("The trained agent has been test!") if self.args.test_model == True else None
+        sys.exit("The trained agent has been test!") if self.eval_model == True else None
 
         # Save solved model:
-        for agent_id in range(self.args.N): 
-            if all(i[agent_id] == True for i in success_count) and self.args.save_model == True: # Problem is solved
+        for agent_id in range(self.N): 
+            if all(i[agent_id] == True for i in success_count) and self.save_model == True: # Problem is solved
                 self.agent_n[agent_id].save_solved_model(self.framework, self.total_timesteps, agent_id, self.seed)
 
         return eval_reward, benchmark_reward

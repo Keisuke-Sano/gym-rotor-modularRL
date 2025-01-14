@@ -1,5 +1,5 @@
 
-# gym-rotor-modularRL
+# Unlocking the Potential of Modular Reinforcement Learning
 
 ### ***Learn by Doing***
 
@@ -93,27 +93,27 @@ python3 main.py --framework DMP
 ```
 
 ### Testing
-The trained model is saved in the `models` folder (e.g. `NMP_590.0k_steps_agent_0_2024`).
+The trained model is saved in the `models` folder (e.g. `NMP_632.0k_steps_agent_0_789`).
 First, modify `total_steps` value in `main.py`, for example, for NMP schemes,
 ```bash
         # Load trained models for evaluation:
-        if self.args.test_model:
+        if self.args.eval_model:
             if self.framework == "NMP":
-                total_steps, agent_id = 590_000, 0  # edit 'total_steps' accordingly
+                total_steps, agent_id = 632_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
 ```
 Next, run the following command,
 ```bash
-python3 main.py --test_model True --save_log True --render True --seed 2024
+python3 main.py --framework NMP --eval_model True --save_log True --render True --seed 789
 ```
 
 ### Plotting Results
 When testing the trained models, we can save the flight data using the `--save_log True` flag.
-Then the data is saved to the `results` folder along with the current date and time (e.g. `NMP_log_11272024_133517.dat`).
-To visualize the flight data, open `draw_plot.py` and update the `file_name` accordingly, e.g., `file_name = 'NMP_log_11272024_133517'`.
+Then the data is saved to the `results` folder along with the current date and time (e.g. `NMP_log_20250114_163953.dat`).
+To visualize the flight data, open `draw_plot.py` and update the `file_name` accordingly, e.g., `file_name = 'NMP_log_20250114_163953'`.
 Lastly, run the plotting script,
 ```bash
-python3 draw_plot.py
+python3 draw_plot.py --framework NMP
 ```
 
 ## Results

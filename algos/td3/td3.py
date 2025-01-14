@@ -4,64 +4,33 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
-
 from algos.networks.mlp import Actor, Critic_TD3
-from algos.networks.emlp import Equiv_Actor_SARL, Equiv_Critic_SARL
-
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    # print("CUDA found.")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-    # print("MPS found.")
-else:
-    device = torch.device("cpu")
-
 
 class TD3(object):
     def __init__(self, args, agent_id):
-        self.framework = args.framework
-        self.N = args.N
+        self.__dict__.update(vars(args))  # convert args to dictionary, e.g., self.discount = args.discount
         self.agent_id = agent_id
-        self.max_action = args.max_action
+        self.obs_dim = args.obs_dim_n[agent_id]
         self.action_dim = args.action_dim_n[agent_id]
+        self.actor_hidden_dim = args.actor_hidden_dim[agent_id]
         self.lr_a = args.lr_a[agent_id]
         self.lr_c = args.lr_c[agent_id]
-        self.discount = args.discount
-        self.tau = args.tau
-        self.use_clip_grad_norm = args.use_clip_grad_norm
-        self.grad_max_norm = args.grad_max_norm
-        self.target_noise = args.target_noise
-        self.noise_clip = args.noise_clip
-        self.policy_update_freq = args.policy_update_freq
-        self.lam_T, self.lam_S, self.lam_M = args.lam_T, args.lam_S, args.lam_M
         self.total_it = 0
 
         # Train models with equivariant reinforcement learning:
-        if args.use_equiv:
-            self.actor = Equiv_Actor_SARL(args, agent_id).to(device)
-            self.actor_target = copy.deepcopy(self.actor)
-            self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(), lr=self.lr_a)
-            self.actor_scheduler = CosineAnnealingWarmRestarts(self.actor_optimizer, T_0=1_000_000, eta_min=1e-5)
+        self.actor = Actor(args, agent_id).to(self.device)
+        self.actor_target = copy.deepcopy(self.actor)
+        self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(), lr=self.lr_a)
+        self.actor_scheduler = CosineAnnealingWarmRestarts(self.actor_optimizer, T_0=1_000_000, eta_min=1e-5)
 
-            self.critic = Equiv_Critic_SARL(args, agent_id).to(device)
-            self.critic_target = copy.deepcopy(self.critic)
-            self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(), lr=self.lr_c)
-            self.critic_scheduler = CosineAnnealingWarmRestarts(self.critic_optimizer, T_0=1_000_000, eta_min=1e-5)
-        else:
-            self.actor = Actor(args, agent_id).to(device)
-            self.actor_target = copy.deepcopy(self.actor)
-            self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(), lr=self.lr_a)
-            self.actor_scheduler = CosineAnnealingWarmRestarts(self.actor_optimizer, T_0=1_000_000, eta_min=1e-5)
-
-            self.critic = Critic_TD3(args, agent_id).to(device)
-            self.critic_target = copy.deepcopy(self.critic)
-            self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(), lr=self.lr_c)
-            self.critic_scheduler = CosineAnnealingWarmRestarts(self.critic_optimizer, T_0=1_000_000, eta_min=1e-5)
+        self.critic = Critic_TD3(args, agent_id).to(self.device)
+        self.critic_target = copy.deepcopy(self.critic)
+        self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(), lr=self.lr_c)
+        self.critic_scheduler = CosineAnnealingWarmRestarts(self.critic_optimizer, T_0=1_000_000, eta_min=1e-5)
 
     # Each agent selects actions based on its own local observations(add noise for exploration)
     def choose_action(self, obs, explor_noise_std):
-        obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float), 0).to(device)
+        obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float), 0).to(self.device)
         act = self.actor(obs).cpu().data.numpy().flatten()
         return (act + np.random.normal(0, explor_noise_std, size=self.action_dim)).clip(-self.max_action, self.max_action)
 
@@ -130,7 +99,7 @@ class TD3(object):
             lam_S = self.lam_S # Spatial Smoothness
             noise_S = (
                 torch.normal(mean=0., std=0.05, size=(1, self.action_dim))
-                ).clamp(-self.noise_clip, self.noise_clip).to(device) # mean and standard deviation
+                ).clamp(-self.noise_clip, self.noise_clip).to(self.device) # mean and standard deviation
             action_bar = (batch_act + noise_S).clamp(-self.max_action, self.max_action)
             Loss_S = F.mse_loss(batch_act, action_bar)
             actor_loss += lam_S * Loss_S
@@ -143,7 +112,7 @@ class TD3(object):
                                         [-self.max_action, self.max_action]
                                 ) * torch.ones(batch_size, 1) # normalized into [-1, 1]
                 M_hover = torch.zeros(batch_size, 3)
-                nominal_action = torch.cat([f_total_hover, M_hover], 1).to(device)
+                nominal_action = torch.cat([f_total_hover, M_hover], 1).to(self.device)
             elif self.framework == "DMP":
                 if self.agent_id == 0:
                     f_total_hover = np.interp(4.*env.hover_force, 
@@ -151,9 +120,9 @@ class TD3(object):
                                             [-self.max_action, self.max_action]
                                     ) * torch.ones(batch_size, 1) # normalized into [-1, 1]
                     tau_hover = torch.zeros(batch_size, 3)
-                    nominal_action = torch.cat([f_total_hover, tau_hover], 1).to(device)
+                    nominal_action = torch.cat([f_total_hover, tau_hover], 1).to(self.device)
                 elif self.agent_id == 1:
-                    nominal_action = torch.zeros(batch_size, 1).to(device) # M3_hover
+                    nominal_action = torch.zeros(batch_size, 1).to(self.device) # M3_hover
             Loss_M = F.mse_loss(batch_act, nominal_action)
             actor_loss += lam_M * Loss_M
 
@@ -173,7 +142,7 @@ class TD3(object):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
 
-    def save_model(self, framework, total_steps, agent_id, seed):
+    def save(self, framework, total_steps, agent_id, seed):
         torch.save(self.actor.state_dict(), "./models/{}_{}k_steps_agent_{}_{}.pth".format(framework, total_steps/1000, agent_id, seed))
 
 
@@ -182,14 +151,14 @@ class TD3(object):
 
 
     def load(self, framework, total_steps, agent_id, seed):
-        if device == "gpu":
+        if self.device == torch.device("cuda"):
             self.actor.load_state_dict(torch.load("./models/{}_{}k_steps_agent_{}_{}.pth".format(framework, total_steps/1000, agent_id, seed)))
         else:
             self.actor.load_state_dict(torch.load("./models/{}_{}k_steps_agent_{}_{}.pth".format(framework, total_steps/1000, agent_id, seed), map_location=torch.device('cpu')))
 
 
     def load_solved_model(self, framework, total_steps, agent_id, seed):
-        if device == "gpu":
+        if self.device == torch.device("cuda"):
             self.actor.load_state_dict(torch.load("./models/{}_{}k_steps_agent_{}_solved_{}.pth".format(framework, total_steps/1000, agent_id, seed)))
         else:
             self.actor.load_state_dict(torch.load("./models/{}_{}k_steps_agent_{}_solved_{}.pth".format(framework, total_steps/1000, agent_id, seed), map_location=torch.device('cpu')))
