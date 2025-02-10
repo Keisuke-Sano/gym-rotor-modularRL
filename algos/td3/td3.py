@@ -5,10 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from algos.networks.mlp import Actor, Critic_TD3
+from algos.policy_regularization import policy_regularization
 
 class TD3(object):
     def __init__(self, args, agent_id):
         self.__dict__.update(vars(args))  # convert args to dictionary, e.g., self.discount = args.discount
+        self.args = args
         self.agent_id = agent_id
         self.obs_dim = args.obs_dim_n[agent_id]
         self.action_dim = args.action_dim_n[agent_id]
@@ -85,46 +87,12 @@ class TD3(object):
         """
         # Update policy less frequently than Q-function for 'delayed policy updates':
         if self.total_it % self.policy_update_freq == 0:
-
             # Set actor loss s.t. Q(s,\mu(s)) approximates \max_a Q(s,a):
             batch_act = (self.actor(batch_obs)).clamp(-self.max_action, self.max_action)
             actor_loss = -self.critic.Q1(batch_obs, batch_act).mean()  # Only use Q1
             
-            # Regularizing action policies for smooth control
-            lam_T = self.lam_T # Temporal Smoothness
-            batch_act_next = self.actor(batch_obs_next).clamp(-self.max_action, self.max_action)
-            Loss_T = F.mse_loss(batch_act, batch_act_next)
-            actor_loss += lam_T * Loss_T
-
-            lam_S = self.lam_S # Spatial Smoothness
-            noise_S = (
-                torch.normal(mean=0., std=0.05, size=(1, self.action_dim))
-                ).clamp(-self.noise_clip, self.noise_clip).to(self.device) # mean and standard deviation
-            action_bar = (batch_act + noise_S).clamp(-self.max_action, self.max_action)
-            Loss_S = F.mse_loss(batch_act, action_bar)
-            actor_loss += lam_S * Loss_S
-
-            lam_M = self.lam_M # Magnitude Smoothness
-            batch_size = batch_act.shape[0]
-            if self.framework == "NMP":
-                f_total_hover = np.interp(4.*env.hover_force, 
-                                        [4.*env.min_force, 4.*env.max_force], 
-                                        [-self.max_action, self.max_action]
-                                ) * torch.ones(batch_size, 1) # normalized into [-1, 1]
-                M_hover = torch.zeros(batch_size, 3)
-                nominal_action = torch.cat([f_total_hover, M_hover], 1).to(self.device)
-            elif self.framework == "DMP":
-                if self.agent_id == 0:
-                    f_total_hover = np.interp(4.*env.hover_force, 
-                                            [4.*env.min_force, 4.*env.max_force], 
-                                            [-self.max_action, self.max_action]
-                                    ) * torch.ones(batch_size, 1) # normalized into [-1, 1]
-                    tau_hover = torch.zeros(batch_size, 3)
-                    nominal_action = torch.cat([f_total_hover, tau_hover], 1).to(self.device)
-                elif self.agent_id == 1:
-                    nominal_action = torch.zeros(batch_size, 1).to(self.device) # M3_hover
-            Loss_M = F.mse_loss(batch_act, nominal_action)
-            actor_loss += lam_M * Loss_M
+            # Regularizing action policies for smooth and efficient control
+            actor_loss = policy_regularization(self.agent_id, self.actor, actor_loss, batch_obs, batch_obs_next, env, self.args)
 
             # Update policy by gradient ascent:
             self.actor_optimizer.zero_grad()

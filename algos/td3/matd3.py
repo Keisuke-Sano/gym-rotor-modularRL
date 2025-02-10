@@ -4,10 +4,12 @@ import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from algos.networks.mlp import Actor, Critic_MATD3
+from algos.policy_regularization import policy_regularization
 
 class MATD3(object):
     def __init__(self, args, agent_id):
         self.__dict__.update(vars(args))  # convert args to dictionary, e.g., self.discount = args.discount
+        self.args = args
         self.agent_id = agent_id
         self.obs_dim = args.obs_dim_n[agent_id]
         self.action_dim = args.action_dim_n[agent_id]
@@ -91,33 +93,9 @@ class MATD3(object):
                 batch_act_n.append(batch_act)
             actor_loss = -self.critic.Q1(batch_obs_n, batch_act_n).mean() # Only use Q1
 
-            # Regularizing action policies for smooth control
-            lam_T = self.lam_T # Temporal Smoothness
-            batch_act_next_n[self.agent_id] = self.actor(batch_obs_next_n[self.agent_id]).clamp(-self.max_action, self.max_action)
-            Loss_T = F.mse_loss(batch_act_n[self.agent_id], batch_act_next_n[self.agent_id])
-            actor_loss += lam_T * Loss_T
-
-            lam_S = self.lam_S # Spatial Smoothness
-            noise_S = (
-                torch.normal(mean=0., std=0.05, size=(1, self.action_dim))
-                ).clamp(-self.noise_clip, self.noise_clip).to(self.device) # mean and standard deviation
-            action_bar = (batch_act_n[self.agent_id] + noise_S).clamp(-self.max_action, self.max_action)
-            Loss_S = F.mse_loss(batch_act_n[self.agent_id], action_bar)
-            actor_loss += lam_S * Loss_S
-
-            lam_M = self.lam_M # Magnitude Smoothness
-            batch_size = batch_act_n[self.agent_id].shape[0]
-            if self.agent_id == 0:
-                f_total_hover = np.interp(4.*env.hover_force, 
-                                         [4.*env.min_force, 4.*env.max_force], 
-                                         [-self.max_action, self.max_action]
-                                         ) * torch.ones(batch_size, 1) # normalized into [-1, 1]
-                tau_hover = torch.zeros(batch_size, 3)
-                nominal_action = torch.cat([f_total_hover, tau_hover], 1).to(self.device)
-            elif self.agent_id == 1:
-                nominal_action = torch.zeros(batch_size, 1).to(self.device) # M3_hover
-            Loss_M = F.mse_loss(batch_act_n[self.agent_id], nominal_action)
-            actor_loss += lam_M * Loss_M
+            # Regularizing action policies for smooth and efficient control
+            actor_loss = policy_regularization(self.agent_id, self.actor, actor_loss, batch_obs_n[self.agent_id], 
+                                               batch_obs_next_n[self.agent_id], env, self.args)
 
             # Optimize the actor
             self.actor_optimizer.zero_grad()
