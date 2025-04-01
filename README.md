@@ -121,9 +121,7 @@ At slower desired yaw rates, such as $\omega_d = 5$ deg/s, all three frameworks 
 However, as $\omega_d$ is increased, the performance of NMP degrades.
 In contrast, both CMP and DMP exhibit superior performance thanks to their modular structure, as changes in one module do not affect the other, thereby enhancing robustness and fault tolerance. 
 
-<p align="center">
-    <img src="articles/flight_traj.png" width=90%>
-<\p>
+<img src="articles/flight_traj.png" width=100%>
 
 ## Citation
 If you find this work useful in your work and would like to cite it, please give credit to our work:

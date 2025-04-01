@@ -122,22 +122,6 @@ class TrajectoryGenerator:
             self.mode = mode
             self.mark_traj_start(state)
 
-        if mode == 7:
-            self.eight_T = 10. # the period of the cycle [sec]
-            self.eight_w_b1d = 0.1*np.pi # [rad/sec]
-            self.eight_w1 = 2*np.pi/self.eight_T # w = 2*pi*t/self.t_origin 
-            self.eight_w2 = 4*np.pi/self.eight_T
-        elif mode == 8:
-            self.eight_T = 8. # the period of the cycle [sec]
-            self.eight_w_b1d = 0.15*np.pi # [rad/sec]
-            self.eight_w1 = 2*np.pi/self.eight_T
-            self.eight_w2 = 4*np.pi/self.eight_T
-        elif mode == 9:
-            self.eight_T = 6. # the period of the cycle [sec]
-            self.eight_w_b1d = 0.2*np.pi # [rad/sec]
-            self.eight_w1 = 2*np.pi/self.eight_T
-            self.eight_w2 = 4*np.pi/self.eight_T
-        
         self.calculate_desired()
 
         return self.xd, self.vd, self.b1d, self.b1d_dot, self.Wd
