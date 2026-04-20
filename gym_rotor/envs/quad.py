@@ -46,7 +46,7 @@ class QuadEnv(gym.Env):
         # Nominal value of quadrotor parameters:
         self.m_nominal = float(drone_params.get("mass", drone_params["body_box"]["mass"] + 2.0 * drone_params["wheels"]["mass"]))
         self.d_nominal = float(max(abs(float(drone_params["arm"]["x"])), abs(float(drone_params["arm"]["y"]))))
-        inertia_matrix = np.asarray(drone_params.get("inertia", np.diag([0.022, 0.022, 0.035])), dtype=float)
+        inertia_matrix = np.asarray(drone_params["inertia"], dtype=float)
         self.J_nominal = inertia_matrix if inertia_matrix.shape == (3, 3) else np.diag(inertia_matrix.reshape(3))
         self.c_tf_nominal = float(actuation_params.get("yaw_moment_ratio", 0.0135))
         self.c_tw_nominal = float(actuation_params.get("max_rotor_thrust", 20.0))
