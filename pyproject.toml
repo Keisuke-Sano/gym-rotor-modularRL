@@ -1,0 +1,26 @@
+[project]
+name = "gym-rotor-modularrl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "gymnasium>=1.2.3",
+    "stable-baselines3>=2.8.0",
+    "mujoco-wheeled-uav-simulator",
+    "numpy>=2.4.3",
+    "scipy>=1.14.0",
+    "torch"
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+mujoco-wheeled-uav-simulator = { workspace = true }
+
+[tool.uv.workspace]
+members = ["gym_rotor/envs/mujoco-wheeled-uav-simulator"]
