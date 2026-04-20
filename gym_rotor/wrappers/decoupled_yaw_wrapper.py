@@ -1,7 +1,8 @@
 import numpy as np
 from numpy.linalg import inv
 from numpy.linalg import norm
-from scipy.integrate import odeint, solve_ivp
+
+import gymnasium as gym
 
 from gym_rotor.envs.quad import QuadEnv
 from gym_rotor.envs.quad_utils import *
@@ -23,6 +24,13 @@ class DecoupledWrapper(QuadEnv):
         # limits of states:
         self.eIx_lim  = 3.0 
         self.eIb1_lim = 3.0 
+
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(5,),
+            dtype=np.float32,
+        )
 
 
     def reset(self, 
@@ -52,35 +60,22 @@ class DecoupledWrapper(QuadEnv):
             4 * (self.scale_act * action[0] + self.avrg_act)
             ).clip(4*self.min_force, 4*self.max_force)
 
-        self.f   = f_total # [N]
-        self.tau = action[1:4] 
-        self.M3  = action[4] # [Nm]
+        self.fM = np.zeros(4, dtype=float)
+        self.fM[0] = f_total
+        self.tau = action[1:4]
+        self.M3 = action[4]
+
+        x, v, R, W = state_decomposition(self.state)
+        b1, b2 = R @ self.e1, R @ self.e2
+        self.fM[1] = b1.T @ self.tau + self.J[2,2] * W[2] * W[1]
+        self.fM[2] = b2.T @ self.tau - self.J[2,2] * W[2] * W[0]
+        self.fM[3] = self.M3
+        self.ctrl = self.fM_to_forces @ self.fM
         
         return action
 
 
     def observation_wrapper(self, state):
-        # Decomposing state vectors:
-        x, v, R, W = state_decomposition(state)
-        R_vec = R.reshape(9, 1, order='F').flatten()
-        current_state = np.concatenate((x, v, R_vec, W), axis=0)
-
-        # Convert each forces to force-moment:
-        self.fM[0] = self.f
-        b1, b2 = R@self.e1, R@self.e2
-        self.fM[1] = b1.T @ self.tau + self.J[2,2]*W[2]*W[1] # M1
-        self.fM[2] = b2.T @ self.tau - self.J[2,2]*W[2]*W[0] # M2
-        self.fM[3] = self.M3
-
-        # Solve ODEs: method = 'DOP853', 'BDF', 'Radau', 'RK45', ...
-        sol = solve_ivp(self.decouple_EoM, [0, self.dt], current_state, method='DOP853')
-        next_state = sol.y[:,-1]
-
-        # TODO: Add sensor noise
-
-        # Next state vec: (x_next[0:3]; v_next[3:6]; R_next[6:15]; W_next[15:18])
-        self.state = next_state
-
         # Modular agents' obs:
         """
         norm_obs_1 = (ex_norm, eIx_norm, ev_norm, b3, ew12_norm)

@@ -1,4 +1,6 @@
-import copy
+import sys
+from pathlib import Path
+
 import numpy as np
 from numpy import interp
 from numpy.linalg import norm
@@ -6,8 +8,8 @@ from numpy.linalg import inv
 from numpy.random import uniform 
 import random
 from math import cos, sin, atan2, sqrt, pi
-from scipy.integrate import odeint, solve_ivp
 from scipy.spatial.transform import Rotation
+import mujoco
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -15,6 +17,15 @@ from gymnasium.utils import seeding
 from gym_rotor.envs.quad_utils import *
 from typing import Optional
 import args_parse
+
+_MUJOCO_SIM_DIR = Path(__file__).resolve().parent / "mujoco-wheeled-uav-simulator"
+if str(_MUJOCO_SIM_DIR) not in sys.path:
+    sys.path.insert(0, str(_MUJOCO_SIM_DIR))
+
+from qav_wheel.config import load_vehicle_params
+from qav_wheel.model_builder import build_rotor_specs, build_uav_model_specs, render_model_xml
+from qav_wheel.paths import DEFAULT_PATH_RESOLVER
+from qav_wheel.simulation import build_sensor_layouts
 
 class QuadEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
@@ -24,20 +35,34 @@ class QuadEnv(gym.Env):
         parser = args_parse.create_parser()
         args = parser.parse_args()
 
+        self.vehicle_params = load_vehicle_params()
+        self.rotor_specs = build_rotor_specs(self.vehicle_params)
+
+        drone_params = self.vehicle_params["drone"]
+        simulation_params = self.vehicle_params["simulation"]
+        actuation_params = self.vehicle_params["actuation"]
+
         # Nominal value of quadrotor parameters:
-        self.m_nominal = 2.15 # mass of quad, [kg]
-        self.d_nominal = 0.23 # arm length, [m]
-        self.J_nominal = np.diag([0.022, 0.022, 0.035]) # inertia matrix of quad, [kg m2]
-        self.c_tf_nominal = 0.0135 # torque-to-thrust coefficients
-        self.c_tw_nominal = 2.2 # thrust-to-weight coefficients
-        self.g = 9.81 # standard gravity
+        self.m_nominal = float(drone_params.get("mass", drone_params["body_box"]["mass"] + 2.0 * drone_params["wheels"]["mass"]))
+        self.d_nominal = float(max(abs(float(drone_params["arm"]["x"])), abs(float(drone_params["arm"]["y"]))))
+        inertia_matrix = np.asarray(drone_params.get("inertia", np.diag([0.022, 0.022, 0.035])), dtype=float)
+        self.J_nominal = inertia_matrix if inertia_matrix.shape == (3, 3) else np.diag(inertia_matrix.reshape(3))
+        self.c_tf_nominal = float(actuation_params.get("yaw_moment_ratio", 0.0135))
+        self.c_tw_nominal = float(actuation_params.get("max_rotor_thrust", 20.0))
+        self.g = abs(float(simulation_params["gravity"][2]))
+
+        self.m = self.m_nominal
+        self.d = self.d_nominal
+        self.J = np.array(self.J_nominal, dtype=float)
+        self.c_tf = self.c_tf_nominal
+        self.c_tw = self.c_tw_nominal
 
         # Force and Moment:
         self.f = self.m_nominal * self.g # magnitude of total thrust to overcome  
                                  # gravity and mass (No air resistance), [N]
-        self.hover_force = self.m_nominal * self.g / 4.0 # thrust magnitude of each motor, [N]
-        self.min_force = 0.5 # minimum thrust of each motor, [N]
-        self.max_force = self.c_tw_nominal * self.hover_force # maximum thrust of each motor, [N]
+        self.hover_force = self.m_nominal * self.g/ 4.0 # thrust magnitude of each motor, [N]
+        self.min_force = 0.0 # minimum thrust of each motor, [N]
+        self.max_force = float(actuation_params.get("max_rotor_thrust", self.c_tw_nominal * self.hover_force)) # maximum thrust of each motor, [N]
         self.avrg_act = (self.min_force+self.max_force)/2.0 
         self.scale_act = self.max_force-self.avrg_act # actor scaling
 
@@ -50,16 +75,16 @@ class QuadEnv(gym.Env):
         self.fM = np.zeros((4, 1)) # Force-moment vector
         self.forces_to_fM = np.array([
             [1.0, 1.0, 1.0, 1.0],
-            [0.0, -self.d_nominal, 0.0, self.d_nominal],
-            [self.d_nominal, 0.0, -self.d_nominal, 0.0],
-            [-self.c_tf_nominal, self.c_tf_nominal, -self.c_tf_nominal, self.c_tf_nominal]
+            [self.rotor_specs[0].position[1], self.rotor_specs[1].position[1], self.rotor_specs[2].position[1], self.rotor_specs[3].position[1]],
+            [-self.rotor_specs[0].position[0], -self.rotor_specs[1].position[0], -self.rotor_specs[2].position[0], -self.rotor_specs[3].position[0]],
+            [self.rotor_specs[0].spin_sign * self.rotor_specs[0].yaw_moment_ratio, self.rotor_specs[1].spin_sign * self.rotor_specs[1].yaw_moment_ratio, self.rotor_specs[2].spin_sign * self.rotor_specs[2].yaw_moment_ratio, self.rotor_specs[3].spin_sign * self.rotor_specs[3].yaw_moment_ratio]
         ]) # Conversion matrix of forces to force-moment 
         self.fM_to_forces = np.linalg.inv(self.forces_to_fM)
 
         # Simulation parameters:
         self.freq = 200 # frequency [Hz]
         self.dt = 1./self.freq # discrete timestep, t(2) - t(1), [sec]
-        self.ode_integrator = "solve_ivp" # or "euler", ODE solvers
+        self.ode_integrator = "mujoco" # physics backend
         self.R2D = 180./pi # [rad] to [deg]
         self.D2R = pi/180. # [deg] to [rad]
         self.e1 = np.array([1.,0.,0.])
@@ -131,6 +156,18 @@ class QuadEnv(gym.Env):
             dtype=np.float32, #np.float64
         ) 
 
+        self.model_xml_path, _, self.uav_specs = render_model_xml(
+            self.vehicle_params,
+            instance_id=0,
+            path_resolver=DEFAULT_PATH_RESOLVER,
+        )
+        self.model = mujoco.MjModel.from_xml_path(str(self.model_xml_path))
+        self.data = mujoco.MjData(self.model)
+        self.sensor_layouts = build_sensor_layouts(self.model, build_uav_model_specs(self.vehicle_params, 1))
+        self.sensor_layout = self.sensor_layouts[0]
+        self._physics_steps_per_env_step = max(1, int(round(self.dt / float(self.model.opt.timestep))))
+        self._body_name = str(drone_params["name"])
+
         # Init:
         self.state = None
         self.viewer = None
@@ -138,32 +175,78 @@ class QuadEnv(gym.Env):
         self.screen_height = 480
         self.screen_capture = 1 
 
+        self.ctrl = np.zeros(4, dtype=float)
+
+    def _sync_control_state(self):
+        self.ctrl = np.asarray(self.ctrl, dtype=float).reshape(4)
+        self.f1, self.f2, self.f3, self.f4 = self.ctrl
+        self.fM = self.forces_to_fM @ self.ctrl
+        self.f = float(self.fM[0])
+        self.M = np.asarray(self.fM[1:4], dtype=float)
+
+    def _rotation_matrix_to_quat_wxyz(self, rotation_matrix: np.ndarray) -> np.ndarray:
+        quat_xyzw = Rotation.from_matrix(rotation_matrix).as_quat()
+        return np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]], dtype=float)
+
+    def _quat_wxyz_to_rotation_matrix(self, quat_wxyz: np.ndarray) -> np.ndarray:
+        quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]], dtype=float)
+        return Rotation.from_quat(quat_xyzw).as_matrix()
+
+    def _sync_state_from_mujoco(self):
+        position = np.array(self.data.sensordata[self.sensor_layout.position], dtype=float)
+        linear_velocity = np.array(self.data.sensordata[self.sensor_layout.linear_velocity], dtype=float)
+        angular_velocity_world = np.array(self.data.sensordata[self.sensor_layout.angular_velocity], dtype=float)
+        rotation_matrix = np.column_stack(
+            (
+                self.data.sensordata[self.sensor_layout.x_axis],
+                self.data.sensordata[self.sensor_layout.y_axis],
+                self.data.sensordata[self.sensor_layout.z_axis],
+            )
+        )
+        angular_velocity_body = rotation_matrix.T @ angular_velocity_world
+        self.state = np.concatenate((position, linear_velocity, rotation_matrix.reshape(9, order='F'), angular_velocity_body), axis=0)
+        return self.state
+
+    def _advance_physics(self):
+        self.data.ctrl[:] = self.ctrl
+        for _ in range(self._physics_steps_per_env_step):
+            mujoco.mj_step(self.model, self.data)
+        self._sync_state_from_mujoco()
+
 
     def step(self, normalized_action):
         # Action:
         action = self.action_wrapper(normalized_action)
+        self._sync_control_state()
+        self._advance_physics()
 
-        # State vec: (x[0:3]; v[3:6]; R_vec[6:15]; W[15:18])
-        state = copy.deepcopy(self.state)
-                 
         # Observation:
-        obs = self.observation_wrapper(state)
+        obs = self.observation_wrapper(self.state)
 
         # Reward function:
         reward = self.reward_wrapper(obs)
         if self.framework in ("CMP","DMP"):
+            if not isinstance(reward, (list, tuple, np.ndarray)):
+                reward = [float(reward), float(reward)]
+            else:
+                reward = list(reward)
             reward[0] = interp(reward[0], [self.reward_min_1, 0.], [0., 1.]) # linear interpolation [0,1]
             reward[1] = interp(reward[1], [self.reward_min_2, 0.], [0., 1.]) # linear interpolation [0,1]
         elif self.framework == "NMP":
-            reward[0] = interp(reward[0], [self.reward_min, 0.], [0., 1.]) # linear interpolation [0,1]  
+            reward_value = float(reward[0] if isinstance(reward, (list, tuple, np.ndarray)) else reward)
+            reward = float(interp(reward_value, [self.reward_min, 0.], [0., 1.])) # linear interpolation [0,1]
 
         # Terminal condition:
         done = self.done_wrapper(obs)
-        if done[0]: # Out of boundary or crashed!
-            reward[0] = self.reward_crash
-        if self.framework in ("CMP","DMP"):
-            if done[1]: # Out of boundary or crashed!
-                reward[1] = self.reward_crash
+        if isinstance(done, (list, tuple, np.ndarray)):
+            if done[0]: # Out of boundary or crashed!
+                if isinstance(reward, list):
+                    reward[0] = self.reward_crash
+            if self.framework in ("CMP","DMP") and done[1]: # Out of boundary or crashed!
+                if isinstance(reward, list):
+                    reward[1] = self.reward_crash
+        elif done:
+            reward = self.reward_crash
 
         return obs, reward, done, False, {}
 
@@ -178,20 +261,21 @@ class QuadEnv(gym.Env):
         # Domain randomization:
         self.set_random_parameters(env_type) if self.use_UDM else None
 
-        # Reset states
-        self.state = np.array(np.zeros(18))
+        mujoco.mj_resetData(self.model, self.data)
 
         # Initial state error:
         self.sample_init_error(env_type)
 
+        base_position = np.array(self.vehicle_params["drone"].get("initial_position", [0.0, 0.0, 0.0]), dtype=float)
+
         # x, position:
-        self.state[0:3] = uniform(size=3,low=-self.init_x,high=self.init_x) 
+        position = base_position + uniform(size=3,low=-self.init_x,high=self.init_x)
 
         # v, velocity:
-        self.state[3:6] = uniform(size=3,low=-self.init_v,high=self.init_v) 
+        linear_velocity = uniform(size=3,low=-self.init_v,high=self.init_v)
 
         # W, angular velocity:
-        self.state[15:18] = uniform(size=3,low=-self.init_W,high=self.init_W) 
+        angular_velocity_body = uniform(size=3,low=-self.init_W,high=self.init_W)
 
         # R, attitude:
         roll_pitch = uniform(size=2,low=-self.init_R,high=self.init_R)
@@ -201,15 +285,18 @@ class QuadEnv(gym.Env):
         if not isRotationMatrix(R):
             U, s, VT = psvd(R)
             R = U @ VT.T
-        self.state[6:15] = R.reshape(9, 1, order='F').flatten()
+        quat_wxyz = self._rotation_matrix_to_quat_wxyz(R)
+
+        self.data.qpos[0:3] = position
+        self.data.qpos[3:7] = quat_wxyz
+        self.data.qvel[0:3] = linear_velocity
+        self.data.qvel[3:6] = R @ angular_velocity_body
+        mujoco.mj_forward(self.model, self.data)
+        self._sync_state_from_mujoco()
         
         # Reset forces & moments:
-        self.f  = self.m * self.g
-        self.f1 = self.hover_force
-        self.f2 = self.hover_force
-        self.f3 = self.hover_force
-        self.f4 = self.hover_force
-        self.M  = np.zeros(3)
+        self.ctrl = np.full(4, self.hover_force, dtype=float)
+        self._sync_control_state()
 
         # Integral terms:
         self.eIx.set_zero() # Set all integrals to zero
@@ -224,53 +311,18 @@ class QuadEnv(gym.Env):
 
     def action_wrapper(self, normalized_action):
         # Linear scale, normalized_action in [-1, 1] -> [min_act, max_act] 
-        action = (
+        action = np.asarray(
             self.scale_act * normalized_action + self.avrg_act
-            ).clip(self.min_force, self.max_force)
+            , dtype=float).clip(self.min_force, self.max_force)
 
         # Saturated thrust of each motor:
-        self.f1 = action[0]
-        self.f2 = action[1]
-        self.f3 = action[2]
-        self.f4 = action[3]
-
-        # Convert each forces to force-moment:
-        self.fM = self.forces_to_fM @ action
-        self.f = self.fM[0]   # [N]
-        self.M = self.fM[1:4] # [Nm]  
+        self.ctrl = action
 
         return action
 
 
     def observation_wrapper(self, state):
-        # Decomposing state vectors:
-        x, v, R, W = state_decomposition(state)
-        R_vec = R.reshape(9, 1, order='F').flatten()
-        current_state = np.concatenate((x, v, R_vec, W), axis=0)
-
-        # Solve ODEs:
-        if self.ode_integrator == "euler": # solve w/ Euler's Method
-            # Equations of motion of the quadrotor UAV
-            x_dot = v
-            v_dot = self.g*self.e3 - self.f*R@self.e3/self.m
-            R_vec_dot = (R@hat(W)).reshape(9, 1, order='F')
-            W_dot = inv(self.J)@(-hat(W)@self.J@W + self.M)
-            state_dot = np.concatenate([x_dot.flatten(), 
-                                        v_dot.flatten(),                                                                          
-                                        R_vec_dot.flatten(),
-                                        W_dot.flatten()])
-            next_state = current_state + state_dot * self.dt
-        elif self.ode_integrator == "solve_ivp": # solve w/ 'solve_ivp' Solver
-            # method = 'RK45', 'DOP853', 'BDF', 'LSODA', ...
-            sol = solve_ivp(self.EoM, [0, self.dt], current_state, method='DOP853')
-            next_state = sol.y[:,-1]
-
-        # TODO: Add sensor noise
-
-        # Next state vec: (x_next[0:3]; v_next[3:6]; R_next[6:15]; W_next[15:18])
-        self.state = next_state
-
-        return self.state
+        return np.array(self.state, dtype=np.float32)
     
 
     def reward_wrapper(self, obs):
@@ -359,51 +411,20 @@ class QuadEnv(gym.Env):
 
 
     def set_random_parameters(self, env_type='train'):
-        # Nominal quadrotor parameters:
-        self.m = self.m_nominal # mass of quad, [kg]
-        self.d = self.d_nominal # arm length, [m]
-        J1, J2, J3 = self.J_nominal[0,0], self.J_nominal[1,1], self.J_nominal[2,2]
-        self.J = np.diag([J1, J2, J3]) # inertia matrix of quad, [kg m2]
-        self.c_tf = self.c_tf_nominal # torque-to-thrust coefficients
-        self.c_tw = self.c_tw_nominal # thrust-to-weight coefficients
+        # Keep the MuJoCo model parameters consistent with the shared simulator config.
+        self.m = self.m_nominal
+        self.d = self.d_nominal
+        self.J = np.array(self.J_nominal, dtype=float)
+        self.c_tf = self.c_tf_nominal
+        self.c_tw = self.c_tw_nominal
 
-        if env_type == 'train':
-            # Randomized quadrotor parameters:
-            uncertainty_range = self.UDM_percentage/100
-            
-            # Quadrotor parameters:
-            m_range = self.m * uncertainty_range
-            d_range = self.d * uncertainty_range
-            J1_range = J1 * uncertainty_range
-            J3_range = J3 * uncertainty_range
-            c_tf_range = self.c_tf * uncertainty_range
-            c_tw_range = self.c_tw * (uncertainty_range/2.) # smaller range for thrust-to-weight coefficients
-
-            self.m = uniform(low=(self.m - m_range), high=(self.m + m_range)) # [kg]
-            self.d = uniform(low=(self.d - d_range), high=(self.d + d_range)) # [m]
-            J1 = uniform(low=(J1 - J1_range), high=(J1 + J1_range))
-            J2 = J1 
-            J3 = uniform(low=(J3 - J3_range), high=(J3 + J3_range))
-            self.J  = np.diag([J1, J2, J3]) # [kg m2]
-            self.c_tf = uniform(low=(self.c_tf - c_tf_range), high=(self.c_tf + c_tf_range))
-            self.c_tw = uniform(low=(self.c_tw - c_tw_range), high=(self.c_tw + c_tw_range))
-                        
-        # Force and Moment:
-        self.f = self.m * self.g # magnitude of total thrust to overcome  
-                                    # gravity and mass (No air resistance), [N]
-        self.hover_force = self.m * self.g / 4.0 # thrust magnitude of each motor, [N]
-        self.min_force = 0.5 # minimum thrust of each motor, [N]
-        self.max_force = self.c_tw * self.hover_force # maximum thrust of each motor, [N]
-        self.fM = np.zeros((4, 1)) # Force-moment vector
-        self.forces_to_fM = np.array([
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, -self.d, 0.0, self.d],
-            [self.d, 0.0, -self.d, 0.0],
-            [-self.c_tf, self.c_tf, -self.c_tf, self.c_tf]
-        ]) # Conversion matrix of forces to force-moment 
-        self.fM_to_forces = np.linalg.inv(self.forces_to_fM)
-        self.avrg_act = (self.min_force+self.max_force)/2.0 
-        self.scale_act = self.max_force-self.avrg_act # actor scaling
+        self.f = self.m * self.g
+        self.hover_force = self.m * self.g / 4.0
+        self.min_force = 0.0
+        self.max_force = float(self.vehicle_params["actuation"].get("max_rotor_thrust", self.max_force))
+        self.fM = np.zeros(4, dtype=float)
+        self.avrg_act = (self.min_force + self.max_force) / 2.0
+        self.scale_act = self.max_force - self.avrg_act
 
         # print('m:',f'{self.m:.3f}','d:',f'{self.d:.3f}','J:',f'{J1:.4f}',f'{J3:.4f}','c_tf:',f'{self.c_tf:.4f}','c_tw:',f'{self.c_tw:.3f}')
         

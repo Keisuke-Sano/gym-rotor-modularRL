@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import norm
-from scipy.integrate import odeint, solve_ivp
 
 from gym_rotor.envs.quad import QuadEnv
 from gym_rotor.envs.quad_utils import *
@@ -47,27 +46,13 @@ class CoupledWrapper(QuadEnv):
             4 * (self.scale_act * action[0] + self.avrg_act)
             ).clip(4*self.min_force, 4*self.max_force)
 
-        self.f = f_total # [N]
-        self.M = action[1:4] # [Nm]
+        self.fM = np.array([f_total, action[1], action[2], action[3]], dtype=float)
+        self.ctrl = self.fM_to_forces @ self.fM
         
         return action
 
 
     def observation_wrapper(self, state):
-        # Decomposing state vectors:
-        x, v, R, W = state_decomposition(state)
-        R_vec = R.reshape(9, 1, order='F').flatten()
-        current_state = np.concatenate((x, v, R_vec, W), axis=0)
-
-        # Solve ODEs: method = 'DOP853', 'BDF', 'Radau', 'RK45', ...
-        sol = solve_ivp(self.EoM, [0, self.dt], current_state, method='DOP853')
-        next_state = sol.y[:,-1]
-
-        # TODO: Add sensor noise
-
-        # Next state vec: (x_next[0:3]; v_next[3:6]; R_next[6:15]; W_next[15:18])
-        self.state = next_state
-
         # Monolithic agent's obs:
         """
         norm_obs = (ex_norm, eIx_norm, ev_norm, R_vec, eb1_norm, eIb1_norm, eW_norm)
