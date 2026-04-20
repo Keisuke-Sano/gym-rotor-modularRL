@@ -1,0 +1,3 @@
+[submodule "gym_rotor/envs/mujoco-wheeled-uav-simulator"]
+	path = gym_rotor/envs/mujoco-wheeled-uav-simulator
+	url = https://github.com/GDAC-Lab/mujoco-wheeled-uav-simulator.git
