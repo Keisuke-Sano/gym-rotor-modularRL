@@ -76,7 +76,7 @@ class Learner:
         
         # Initialize the trajectory generator:
         self.trajectory_generator = TrajectoryGenerator(self.env)  
-        self.mode = 6  # set mode for generating curtain trajectories 
+        self.mode = 0  # set mode for generating curtain trajectories 
 
         # Initialize N agents:
         if self.framework == "CMP":
