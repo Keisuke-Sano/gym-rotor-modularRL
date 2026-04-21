@@ -76,7 +76,7 @@ class Learner:
         
         # Initialize the trajectory generator:
         self.trajectory_generator = TrajectoryGenerator(self.env)  
-        self.mode = 0  # set mode for generating curtain trajectories 
+        self.mode = 6  # set mode for generating curtain trajectories 
 
         # Initialize N agents:
         if self.framework == "CMP":
@@ -90,12 +90,12 @@ class Learner:
         # Load trained models for evaluation:
         if self.eval_model:
             if self.framework == "CMP":
-                total_steps, agent_id = 578_000, 0  # edit 'total_steps' accordingly
+                total_steps, agent_id = 594_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models
                 # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
-                total_steps, agent_id = 616_000, 1  # edit 'total_steps' accordingly
-                self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models 
-                # self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
+                total_steps, agent_id = 728_000, 1  # edit 'total_steps' accordingly
+                # self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)  # test best models 
+                self.agent_n[agent_id].load_solved_model(self.framework, total_steps, agent_id, self.seed)  # test solved models
             if self.framework == "DMP":
                 total_steps, agent_id = 582_000, 0  # edit 'total_steps' accordingly
                 self.agent_n[agent_id].load(self.framework, total_steps, agent_id, self.seed)
@@ -164,7 +164,10 @@ class Learner:
 
             # Store a set of transitions in replay buffer:
             self.replay_buffer.store_transition(obs_n, act_n, r_n, obs_next_n, done_n)
-            episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.N), r_n)]
+            if self.framework == "NMP":
+                episode_reward = [float('{:.4f}'.format(episode_reward[0] + float(r_n)))]
+            else:
+                episode_reward = [float('{:.4f}'.format(episode_reward[agent_id] + r)) for agent_id, r in zip(range(self.N), r_n)]
             obs_n = obs_next_n
 
             # Train agent after collecting sufficient data:
@@ -319,7 +322,10 @@ class Learner:
                 ex, eIx, ev, eb1, eIb1 = get_error_state(obs_next_n, self.x_lim, self.v_lim, self.eIx_lim, self.eIb1_lim, args)
 
                 # Cumulative rewards:
-                episode_reward = [float('{:.4f}'.format(episode_reward[agent_id]+r)) for agent_id, r in zip(range(self.N), r_n)]
+                if self.framework == "NMP":
+                    episode_reward = [float('{:.4f}'.format(episode_reward[0] + float(r_n)))]
+                else:
+                    episode_reward = [float('{:.4f}'.format(episode_reward[agent_id] + r)) for agent_id, r in zip(range(self.N), r_n)]
                 episode_benchmark_reward += benchmark_reward_func(ex, eb1)
 
                 # Episode termination:
@@ -336,7 +342,10 @@ class Learner:
                 obs_n = obs_next_n
 
             # Compute total evaluation rewards:
-            eval_reward = [eval_reward[agent_id]+epi_r for agent_id, epi_r in zip(range(self.N), episode_reward)]
+            if self.framework == "NMP":
+                eval_reward = [eval_reward[0] + episode_reward[0]]
+            else:
+                eval_reward = [eval_reward[agent_id] + epi_r for agent_id, epi_r in zip(range(self.N), episode_reward)]
             benchmark_reward += episode_benchmark_reward
 
             # Save data:

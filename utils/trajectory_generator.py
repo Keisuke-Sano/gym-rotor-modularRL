@@ -142,7 +142,7 @@ class TrajectoryGenerator:
             if self.init_b1d == True:
                 self.set_desired_states_to_zero()
                 b1d_temp = self.get_current_b1()
-                theta_b1d = np.random.uniform(size=1,low=-25*self.D2R, high=25*self.D2R) 
+                theta_b1d = np.random.uniform(low=-25*self.D2R, high=25*self.D2R)
                 self.b1d = self.R_e3(theta_b1d) @ b1d_temp 
                 # print(theta_b1d, b1d_temp, self.b1d)
                 self.init_b1d = False
@@ -506,6 +506,7 @@ class TrajectoryGenerator:
             
     # Rotation on e3 axis
     def R_e3(self, theta):
-        return np.array([[cos(theta), -sin(theta), 0.],
-                         [sin(theta),  cos(theta), 0.],
+        theta = float(np.asarray(theta))
+        return np.array([[np.cos(theta), -np.sin(theta), 0.],
+                         [np.sin(theta),  np.cos(theta), 0.],
                          [        0.,          0., 1.]])

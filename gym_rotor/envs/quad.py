@@ -48,7 +48,7 @@ class QuadEnv(gym.Env):
         self.d_nominal = float(max(abs(float(drone_params["arm"]["x"])), abs(float(drone_params["arm"]["y"]))))
         inertia_matrix = np.asarray(drone_params["inertia"], dtype=float)
         self.J_nominal = inertia_matrix if inertia_matrix.shape == (3, 3) else np.diag(inertia_matrix.reshape(3))
-        self.c_tf_nominal = float(actuation_params.get("yaw_moment_ratio", 0.0135))
+        self.c_tf_nominal = float(actuation_params.get("yaw_moment_ratio", 0.02))
         self.c_tw_nominal = float(actuation_params.get("max_rotor_thrust", 20.0))
         self.g = abs(float(simulation_params["gravity"][2]))
 
@@ -500,15 +500,18 @@ class QuadEnv(gym.Env):
         if self.render_mode != "human":
             return False
 
-        with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-            viewer.cam.lookat[:] = np.asarray(self.state[0:3], dtype=float)
-            viewer.cam.distance = 4.0
-            viewer.cam.elevation = -20.0
-            viewer.cam.azimuth = 45.0
-            viewer.sync()
+        if self.viewer is None or not self.viewer.is_running():
+            self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+
+        self.viewer.cam.lookat[:] = np.asarray(self.state[0:3], dtype=float)
+        self.viewer.cam.distance = 4.0
+        self.viewer.cam.elevation = -20.0
+        self.viewer.cam.azimuth = 45.0
+        self.viewer.sync()
         return True
 
 
     def close(self):
         if self.viewer:
+            self.viewer.close()
             self.viewer = None
