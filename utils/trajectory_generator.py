@@ -506,6 +506,7 @@ class TrajectoryGenerator:
             
     # Rotation on e3 axis
     def R_e3(self, theta):
-        return np.array([[cos(theta), -sin(theta), 0.],
-                         [sin(theta),  cos(theta), 0.],
+        theta_val = np.asarray(theta).item()
+        return np.array([[np.cos(theta_val), -np.sin(theta_val), 0.],
+                         [np.sin(theta_val),  np.cos(theta_val), 0.],
                          [        0.,          0., 1.]])
